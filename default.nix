@@ -90,6 +90,31 @@ let
   # eachSystem using defaultSystems
   eachDefaultSystem = eachSystem defaultSystems;
 
+  # Copied from nixpkgs/lib/attrsets.nix to avoid dependency on nixpkgs
+  recursiveUpdateUntil =
+    # Predicate, taking the path to the current attribute as a list of strings for attribute names, and the two values at that path from the original arguments.
+    pred:
+    # Left attribute set of the merge.
+    lhs:
+    # Right attribute set of the merge.
+    rhs:
+    let f = attrPath:
+      __zipAttrsWith (n: values:
+        let here = attrPath ++ [n]; in
+        if __length values == 1
+        || pred here (__elemAt values 1) (__head values) then
+          __head values
+        else
+          f here values
+      );
+    in f [] [rhs lhs];
+  recursiveUpdate =
+    # Left attribute set of the merge.
+    lhs:
+    # Right attribute set of the merge.
+    rhs:
+    recursiveUpdateUntil (path: lhs: rhs: !(__isAttrs lhs && __isAttrs rhs)) lhs rhs;
+
   # Builds a map from <attr>=value to <attr>.<system>=value for each system,
   # except for the `hydraJobs` attribute, where it maps the inner attributes,
   # from hydraJobs.<attr>=value to hydraJobs.<attr>.<system>=value.
@@ -133,8 +158,8 @@ let
                   else { ${system} = ret.${key}; };
             in attrs //
               {
-                ${key} = (attrs.${key} or { })
-                  // (appendSystem key system ret);
+                ${key} = recursiveUpdate (attrs.${key} or { })
+                  (appendSystem key system ret);
               }
           ;
         in
