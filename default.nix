@@ -90,76 +90,18 @@ let
   # eachSystem using defaultSystems
   eachDefaultSystem = eachSystem defaultSystems;
 
-  # Copied from nixpkgs/lib/attrsets.nix to avoid dependency on nixpkgs
-  recursiveUpdateUntil =
-    # Predicate, taking the path to the current attribute as a list of strings for attribute names, and the two values at that path from the original arguments.
-    pred:
-    # Left attribute set of the merge.
-    lhs:
-    # Right attribute set of the merge.
-    rhs:
-    let f = attrPath:
-      __zipAttrsWith (n: values:
-        let here = attrPath ++ [n]; in
-        if __length values == 1
-        || pred here (__elemAt values 1) (__head values) then
-          __head values
-        else
-          f here values
-      );
-    in f [] [rhs lhs];
-  recursiveUpdate =
-    # Left attribute set of the merge.
-    lhs:
-    # Right attribute set of the merge.
-    rhs:
-    recursiveUpdateUntil (path: lhs: rhs: !(__isAttrs lhs && __isAttrs rhs)) lhs rhs;
-
-  # Builds a map from <attr>=value to <attr>.<system>=value for each system,
-  # except for the `hydraJobs` attribute, where it maps the inner attributes,
-  # from hydraJobs.<attr>=value to hydraJobs.<attr>.<system>=value.
+  # Builds a map from <attr>=value to <attr>.<system>=value for each system
   #
   eachSystem = systems: f:
     let
-      # Taken from <nixpkgs/lib/attrsets.nix>
-      isDerivation = x: builtins.isAttrs x && x ? type && x.type == "derivation";
-
-      # Used to match Hydra's convention of how to define jobs. Basically transforms
-      #
-      #     hydraJobs = {
-      #       hello = <derivation>;
-      #       haskellPackages.aeson = <derivation>;
-      #     }
-      #
-      # to
-      #
-      #     hydraJobs = {
-      #       hello.x86_64-linux = <derivation>;
-      #       haskellPackages.aeson.x86_64-linux = <derivation>;
-      #     }
-      #
-      # if the given flake does `eachSystem [ "x86_64-linux" ] { ... }`.
-      pushDownSystem = system: merged:
-        builtins.mapAttrs
-          (name: value:
-            if ! (builtins.isAttrs value) then value
-            else if isDerivation value then (merged.${name} or {}) // { ${system} = value; }
-            else pushDownSystem system (merged.${name} or {}) value);
-
       # Merge together the outputs for all systems.
       op = attrs: system:
         let
           ret = f system;
-          op = attrs: key:
-            let
-              appendSystem = key: system: ret:
-                if key == "hydraJobs"
-                  then (pushDownSystem system (attrs.hydraJobs or {}) ret.hydraJobs)
-                  else { ${system} = ret.${key}; };
-            in attrs //
+          op = attrs: key: attrs //
               {
-                ${key} = recursiveUpdate (attrs.${key} or { })
-                  (appendSystem key system ret);
+                ${key} = (attrs.${key} or { })
+                  // { ${system} = ret.${key}; };
               }
           ;
         in
